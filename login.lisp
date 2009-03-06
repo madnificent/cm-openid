@@ -1,41 +1,64 @@
-(dolist (system '(:claymore :bknr.datastore :bknr.indices :cl-openid))
+(dolist (system '(:claymore :cl-openid))
   (asdf:oos 'asdf:load-op system))
 
 ;;;;;;;;;;;;;;;;;;
 ;; define packages
-(defpackage :openid-user.site
+(defpackage :openid-user
   (:use :common-lisp
 	:claymore
 	:claymore.routing
-	:claymore.html))
+	:claymore.html)
+  (:export :openid
+	   :indirect-response?
+	   :access-granted?
+	   :has-openid-identifier?
+	   :login-form
+	   :login-form-page
+	   :*relying-party*
+	   :*before-access-granted-page*))
+	   
 
-(in-package :openid-user.site)
+(in-package :openid-user)
 
 ;;;;;;;;;
 ;; config
-(defparameter *relying-party* (make-instance 'cl-openid:relying-party
-					     :root-uri (puri:uri "http://freyr.homelinux.org/openid")
-					     :realm (puri:uri "http://freyr.homelinux.org/"))
-  "A relying party instance, filled when calling INIT-RELYING-PARTY.")
+;; This is something the framework should abstract in some way or another
+(defvar *relying-party* nil
+  "The relying party")
+(defvar *host* nil
+  "The hostname that will be used (if specified)")
+
+(defun host ()
+  (or *host* 
+      (concatenate 'string "http://" (hunchentoot:host) "")))
+(defun login-page-uri ()
+  "URI of the login page"
+  (concatenate 'string (host) (claymore.routing:handler-url 'login-form-page)))
+
+(defun relying-party ()
+  "Returns the relying party or sets it when no relying party has been specified before."
+  (or *relying-party*
+      (setf *relying-party*
+	    (make-instance 'cl-openid:relying-party
+			   :root-uri (puri:uri (login-page-uri))
+			   :realm (puri:uri (host))))))
 
 (defun get-authproc ()
   (cl-openid:handle-indirect-response 
-   *relying-party* (hunchentoot:get-parameters*)
-   (puri:merge-uris (hunchentoot:request-uri*) (cl-openid:root-uri *relying-party*))))
+   (relying-party) (hunchentoot:get-parameters*)
+   (puri:merge-uris (hunchentoot:request-uri*) (cl-openid:root-uri (relying-party)))))
    
 ;;;;;;;;;;
 ;; routing
-(claymore.routing:set-routing-table '(("openid"
-				       (when indirect-response?
-					 (when access-granted? access-granted-page)
-					 access-denied-page)
-				       (when has-openid-identifier? initiate-authentication)
-				       (handles login-form loosely))))
+(setf (claymore.routing:subroute 'openid) '((when indirect-response?
+					      (when access-granted? access-granted-page)
+					      access-denied-page)
+					    (when has-openid-identifier? initiate-authentication)
+					    (handles login-form-page loosely)))
 
 (defwhen has-openid-identifier?
     "Specifies that the current request has an openid-identifier"
   ((&rest args)
-   (hunchentoot:log-message :route-when "has-openid-identifier?")
    (when (param "openid_identifier")
      args))
   ((&rest args)
@@ -44,7 +67,6 @@
 (defwhen indirect-response?
     "Checks if this is an indirect response of the openid server"
   ((&rest args)
-   (hunchentoot:log-message :route-when "indirect-response?")
    (when (param cl-openid:+authproc-handle-parameter+)
      args))
   ((&rest args)
@@ -53,7 +75,6 @@
 (defwhen access-granted?
     "Specifies that the access has been granted"
   ((&rest args)
-   (hunchentoot:log-message :route-when "access-granted?")
    (when (get-authproc)
      args))
   ((&rest args)
@@ -61,44 +82,43 @@
 
 ;;;;;;;;
 ;; pages
-(defun standard-page (title &rest body)
+(defun trivial-page (title &rest body)
+  "This page is used for the simplest standard views generated here.  You should overwrite the correct pages, as to be able to redirect to the right page after a user-login."
   (html (head (title title))
 	(h1 title)
 	body))
 
-(defpage login-form
-  (standard-page 
-   "OpenID login"
-   (form :method "post" :action (handler-url 'initiate-authentication)
-	 (text-field "openid_identifier" T
-		     :style "background-image: url('http://openid.net/wp-content/uploads/2007/10/openid_small_logo.png');background-position: 0px 0px;background-repeat: no-repeat;padding-left: 20px;"
-		     :value "")
-	 (submit-button :name "openid_action" :value "Login")
-	 (label (input :type "checkbox" :name "checkid_immediate") " Immediate request"))))
+(defun login-form ()
+  (form :method "post" :action (handler-url 'initiate-authentication)
+	(text-field "openid_identifier" T
+		    :style "background-image: url('http://openid.net/wp-content/uploads/2007/10/openid_small_logo.png');background-position: 0px 0px;background-repeat: no-repeat;padding-left: 20px;"
+		    :value "")
+	(submit-button :name "openid_action" :value "Login")))
 
-(defun tableize-alist (alist)
-  "Creates an html table from an alist"
-  (table (tr (td "var") (td "value"))
-	 (loop for (var val) on alist by #'cddr collect
-	      (tr (td (format nil "~A" var)) (td (format nil "~A" val))))))
+
+(defpage login-form-page
+  (trivial-page
+   "OpenID login"
+   (login-form)))
+
+(defvar *before-access-granted-page* (lambda ())
+  "This is ran before the access-granted-page is rendered.")
 
 (defpage access-granted-page
-  (standard-page "access granted"
-		 (p (strong "realm:") (princ-to-string (cl-openid:realm *relying-party*)))
-		 (h2 "Response:")
-		 (tableize-alist (hunchentoot:get-parameters*))
-		 (p :style "text-align:right;" (link-to-page "back" 'login-form))))
+  (funcall *before-access-granted-page*)
+  (trivial-page "success"
+		(p "Your id has been accepted")))
 
 (defpage access-denied-page
-    (standard-page "access denied"
-		   (p (strong "realm:") (princ-to-string (cl-openid:realm *relying-party*)))
-		   (h2 "Response:")
-		   (tableize-alist (hunchentoot:get-parameters*))
-		   (p :style "text-align:right;" (link-to-page "back" 'login-form))))
+  (trivial-page "access denied"
+		(p "The openid service didn't recognise you, please try again " (link-to-page "here" 'login-form-page))))
+
+(defpage some-error-happened
+  (trivial-page "request failed"
+		(p "Apologies, the request failed.  This is generally a very bad symptom.  Double-check the openid uri you entered. If all went well, it might be a good idea to inform the the website maintainer about this issue.")))
 
 (defpage initiate-authentication
-  (hunchentoot:log-message :info "Running page initiate-authentication")
   (hunchentoot:redirect 
    (princ-to-string 
-    (cl-openid:initiate-authentication *relying-party* (param "openid_identifier")
+    (cl-openid:initiate-authentication (relying-party) (param "openid_identifier")
 				       :immediate-p (param "checkid_immediate")))))
