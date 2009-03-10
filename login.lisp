@@ -1,9 +1,6 @@
-(dolist (system '(:claymore :cl-openid))
-  (asdf:oos 'asdf:load-op system))
-
 ;;;;;;;;;;;;;;;;;;
 ;; define packages
-(defpackage :openid-user
+(defpackage :cm-openid-user
   (:use :common-lisp
 	:claymore
 	:claymore.routing
@@ -18,7 +15,7 @@
 	   :*before-access-granted-page*))
 	   
 
-(in-package :openid-user)
+(in-package :cm-openid-user)
 
 ;;;;;;;;;
 ;; config
