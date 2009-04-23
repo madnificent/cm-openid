@@ -96,7 +96,7 @@
 	(submit-button :name "openid_action" :value "Login")))
 
 
-(defpage login-form-page
+(defpage login-form-page ()
   (trivial-page
    "OpenID login"
    (login-form)))
@@ -104,20 +104,20 @@
 (defvar *before-access-granted-page* (lambda ())
   "This is ran before the access-granted-page is rendered.")
 
-(defpage access-granted-page
+(defpage access-granted-page ()
   (funcall *before-access-granted-page*)
   (trivial-page "success"
 		(p "Your id has been accepted")))
 
-(defpage access-denied-page
+(defpage access-denied-page ()
   (trivial-page "access denied"
 		(p "The openid service didn't recognise you, please try again " (link-to-page "here" 'login-form-page))))
 
-(defpage some-error-happened
+(defpage some-error-happened ()
   (trivial-page "request failed"
 		(p "Apologies, the request failed.  This is generally a very bad symptom.  Double-check the openid uri you entered. If all went well, it might be a good idea to inform the the website maintainer about this issue.")))
 
-(defpage initiate-authentication
+(defpage initiate-authentication ()
   (hunchentoot:redirect 
    (princ-to-string 
     (cl-openid:initiate-authentication (relying-party) (param "openid_identifier")
