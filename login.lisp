@@ -1,9 +1,6 @@
-(dolist (system '(:claymore :cl-openid))
-  (asdf:oos 'asdf:load-op system))
-
 ;;;;;;;;;;;;;;;;;;
 ;; define packages
-(defpackage :openid-user
+(defpackage :cm-openid-user
   (:use :common-lisp
 	:claymore
 	:claymore.routing
@@ -18,7 +15,7 @@
 	   :*before-access-granted-page*))
 	   
 
-(in-package :openid-user)
+(in-package :cm-openid-user)
 
 ;;;;;;;;;
 ;; config
@@ -27,6 +24,13 @@
   "The relying party")
 (defvar *host* nil
   "The hostname that will be used (if specified)")
+
+(defmacro with-error-redirector (&body body)
+  "Redirects the user to the error-page if an error occured"
+  `(handler-bind ((error (lambda (e)
+			   (declare (ignore e))
+			   (redirect-to-page 'some-error-happened))))
+     ,@body))
 
 (defun host ()
   (or *host* 
@@ -37,16 +41,18 @@
 
 (defun relying-party ()
   "Returns the relying party or sets it when no relying party has been specified before."
-  (or *relying-party*
-      (setf *relying-party*
-	    (make-instance 'cl-openid:relying-party
-			   :root-uri (puri:uri (login-page-uri))
-			   :realm (puri:uri (host))))))
+  (with-error-redirector
+    (or *relying-party*
+	(setf *relying-party*
+	      (make-instance 'cl-openid:relying-party
+			     :root-uri (puri:uri (login-page-uri))
+			     :realm (puri:uri (host)))))))
 
 (defun get-authproc ()
-  (cl-openid:handle-indirect-response 
-   (relying-party) (hunchentoot:get-parameters*)
-   (puri:merge-uris (hunchentoot:request-uri*) (cl-openid:root-uri (relying-party)))))
+  (with-error-redirector
+    (cl-openid:handle-indirect-response 
+     (relying-party) (hunchentoot:get-parameters*)
+     (puri:merge-uris (hunchentoot:request-uri*) (cl-openid:root-uri (relying-party))))))
    
 ;;;;;;;;;;
 ;; routing
@@ -54,6 +60,7 @@
 					      (when access-granted? access-granted-page)
 					      access-denied-page)
 					    (when has-openid-identifier? initiate-authentication)
+					    ("failed" some-error-happened)
 					    (handles login-form-page loosely)))
 
 (defwhen has-openid-identifier?
@@ -118,7 +125,8 @@
 		(p "Apologies, the request failed.  This is generally a very bad symptom.  Double-check the openid uri you entered. If all went well, it might be a good idea to inform the the website maintainer about this issue.")))
 
 (defpage initiate-authentication ()
-  (hunchentoot:redirect 
-   (princ-to-string 
-    (cl-openid:initiate-authentication (relying-party) (param "openid_identifier")
-				       :immediate-p (param "checkid_immediate")))))
+  (with-error-redirector
+    (hunchentoot:redirect 
+     (princ-to-string 
+      (cl-openid:initiate-authentication (relying-party) (param "openid_identifier")
+					 :immediate-p (param "checkid_immediate"))))))
