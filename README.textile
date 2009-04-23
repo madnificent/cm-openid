@@ -1,0 +1,15 @@
+h1. cm-openid
+
+claymore openid allows you to use OpenID from within a claymore-driven web-page.
+
+
+h2. Needed support.
+
+This plugin needs the cl-openid library.  You'll need to install/load this when using this library.
+
+h2. Plugin style
+
+This serves as an example as to how plugins for claymore/clayworks can be written.
+
+The process for doing so is very straight-forward.  There is virtually nothing special about it, as the route config will be overwritten by the user's application.  Everything that has been provided must be included in the site of the users, by the users.  Thus allowing you to provide some handy helpers that might not be needed immediately.
+
